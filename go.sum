@@ -1,2 +1,6 @@
+github.com/codefrite/gameboy-go v0.0.6 h1:HZI/Jyaf3V1DUJTuiRGkEi454kWtLuz8dqKiR/YvA4U=
+github.com/codefrite/gameboy-go v0.0.6/go.mod h1:3c3xas9po/MrvWAGI4gMer8AyFfF1PivMRHa57F0XIE=
+github.com/codefrite/gameboy-go v0.0.8 h1:FoG9eMfWPtjZCkengkT9oX9bfzW9Q+HCKlhMWxo/Hfo=
+github.com/codefrite/gameboy-go v0.0.8/go.mod h1:3c3xas9po/MrvWAGI4gMer8AyFfF1PivMRHa57F0XIE=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=

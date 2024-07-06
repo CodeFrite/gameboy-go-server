@@ -1,9 +1,8 @@
-module codefrite.dev/emulators/server
-
-require codefrite.dev/emulators v0.0.0
-
-require github.com/gorilla/websocket v1.5.3
-
-replace codefrite.dev/emulators => ../gameboy-go
+module github.com/codefrite/gameboy-go-server
 
 go 1.22
+
+require (
+	github.com/codefrite/gameboy-go v0.0.8
+	github.com/gorilla/websocket v1.5.3
+)
