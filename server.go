@@ -1,12 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
 
-	"codefrite.dev/emulators/gameboy"
+	"github.com/codefrite/gameboy-go/gameboy"
 	"github.com/gorilla/websocket"
 )
 
@@ -14,8 +15,8 @@ var (
 	emulators = make(map[*websocket.Conn]*gameboy.Gameboy)
 	mutex     = &sync.Mutex{}
 	upgrader  = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  1024 * 8,
+		WriteBufferSize: 1024 * 8,
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
@@ -29,6 +30,15 @@ func cleanup(conn *websocket.Conn) {
 	mutex.Lock()
 	delete(emulators, conn) // safe because no-op if conn is not in the map
 	mutex.Unlock()
+}
+
+func sendMessage(conn *websocket.Conn, message *Message) {
+	payload, err := json.Marshal(message)
+	if err != nil {
+		fmt.Println("Err: Couldn't marshal message:", err)
+		return
+	}
+	conn.WriteMessage(websocket.TextMessage, payload)
 }
 
 func handleWSMessage(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +62,8 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("New connection")
 
 	// send the initial state of the CPU to the client
-	conn.WriteJSON(gb.State())
+	data := newGameboyStateMessage(gb.State())
+	sendMessage(conn, data)
 
 	// now that the connection has been established, we can start listening for messages
 	for {
@@ -72,9 +83,8 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 		// Process the message
 		switch string(p) {
 		case "step":
-			state := emulators[conn].Step()
-			fmt.Println(state)
-			conn.WriteJSON(state)
+			gameboyStateMessage := newGameboyStateMessage(emulators[conn].Step())
+			sendMessage(conn, gameboyStateMessage)
 		case "run":
 		default:
 			fmt.Println("Err: Unknown message type", string(p))
