@@ -1,0 +1,20 @@
+{
+  "name": "gameboy-go",
+  "version": "1.1.0",
+  "description": "TypeScript definitions for gameboy-go server messages",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CodeFrite/gameboy-go-server.git"
+  },
+  "author": "codefrite",
+  "license": "MIT",
+  "scripts": {
+    "prepublish": "tsc",
+    "publish": "npm publish --access public"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}

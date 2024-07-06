@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	emulators = make(map[*websocket.Conn]*gameboy.Gameboy)
+	emulators = make(map[*websocket.Conn]*gameboy.Debugger)
 	mutex     = &sync.Mutex{}
 	upgrader  = websocket.Upgrader{
 		ReadBufferSize:  1024 * 8,
@@ -53,17 +53,22 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 
 	// since maps are not concurrent-safe, we need use a mutex to protect the map
 	mutex.Lock()
-	gb := gameboy.NewGameboy("tetris.gb")
+	db := gameboy.NewDebugger()
+	db.Init("tetris.gb")
 	// return the initial state of the CPU
-	emulators[conn] = gb
+	emulators[conn] = db
 	mutex.Unlock()
 
 	// log new connection
 	fmt.Println("New connection")
 
+	// send the initial memory maps (name, address, data dump) to the client
+	attachedMemories := db.GetAttachedMemories()
+	sendMessage(conn, InitialMemoryMapsMessage(&attachedMemories))
+
 	// send the initial state of the CPU to the client
-	data := newGameboyStateMessage(gb.State())
-	sendMessage(conn, data)
+	gameboyInitialState := db.Step()
+	sendMessage(conn, GameboyStateMessage(gameboyInitialState))
 
 	// now that the connection has been established, we can start listening for messages
 	for {
@@ -83,8 +88,8 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 		// Process the message
 		switch string(p) {
 		case "step":
-			gameboyStateMessage := newGameboyStateMessage(emulators[conn].Step())
-			sendMessage(conn, gameboyStateMessage)
+			newState := emulators[conn].Step()
+			sendMessage(conn, GameboyStateMessage(newState))
 		case "run":
 		default:
 			fmt.Println("Err: Unknown message type", string(p))
