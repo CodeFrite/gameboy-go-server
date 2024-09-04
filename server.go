@@ -1,5 +1,12 @@
 package main
 
+/* server.go is the API server that serves the gameboy emulator to the client
+ * - it is a websocket server that listens for incoming connections on port :8080
+ * - it serves the endpoint /gameboy that the client connects to
+ * - upon connection, a new instance of the gameboy emulator hosted on github.com/codefrite/gameboy-go/gameboy is created and mapped to the connection
+ * - any following message from a client is then processed on the corresponding gameboy emulator, assuring that each client has its own instance of the emulator
+ */
+
 import (
 	"encoding/json"
 	"fmt"
@@ -11,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+/* package level variables declaration */
 var (
 	emulators = make(map[*websocket.Conn]*gameboy.Debugger)
 	mutex     = &sync.Mutex{}
@@ -23,7 +31,7 @@ var (
 	}
 )
 
-// Close the connection and remove it from the map
+/* closes the connection and deletes it from the map */
 func cleanup(conn *websocket.Conn) {
 	fmt.Printf("Cleaning up conn %v\n", emulators)
 	conn.Close()
@@ -32,6 +40,10 @@ func cleanup(conn *websocket.Conn) {
 	mutex.Unlock()
 }
 
+/* sends a message to the client
+ * conn is the websocket connection to send the message to
+ * message is the message to be marshalled and sent through the connection (must be a text message)
+ */
 func sendMessage(conn *websocket.Conn, message *Message) {
 	payload, err := json.Marshal(message)
 	if err != nil {
@@ -40,6 +52,18 @@ func sendMessage(conn *websocket.Conn, message *Message) {
 	}
 	conn.WriteMessage(websocket.TextMessage, payload)
 }
+
+/* handler for the /gameboy route
+ * - upgrades the HTTP connection to a websocket connection
+ * - creates a new instance of the gameboy emulator and maps it to the connection
+ * - sends the initial state of the CPU to the client
+ * - then enters in a loop that listens for incoming messages from the client
+ * - processes the messages and sends the updated state of the CPU to the client
+
+ * Depending on the message content received from the client, the server will:
+ * - step the CPU 1 cycle and send the updated state to the client
+ * - run the CPU and send the updated state to the client (TODO: must decide how to handle the different intermediate states of the CPU and also process the users joypad inputs)
+ */
 
 func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 	// upgrade the HTTP connection to a websocket connection
@@ -96,13 +120,16 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 }
 
+/* registers the handler for the different routes
+ * '/gameboy' is the route that the client will connect to from gameboy-go.codefrite.dev
+ */
 func route() {
 	http.HandleFunc("/gameboy", handleWSMessage)
 }
 
+/* setup the API routes, serves and listen on port :8080 */
 func main() {
 	route()
 	fmt.Println("Server running on port :8080")
