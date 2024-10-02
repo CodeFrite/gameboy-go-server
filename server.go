@@ -5,6 +5,11 @@ package main
  * - it serves the endpoint /gameboy that the client connects to
  * - upon connection, a new instance of the gameboy emulator hosted on github.com/codefrite/gameboy-go/gameboy is created and mapped to the connection
  * - any following message from a client is then processed on the corresponding gameboy emulator, assuring that each client has its own instance of the emulator
+
+ * Each connection should have its own instance of the gameboy as well as the cpu and ppu state channels. This is naturally achieved by the fact
+ * that http.HandleFunc("/gameboy", handleWSMessage) will create a new goroutine for each connection.
+ * TODO: Check if the map of emulators is still necessary, since each connection will run in its own goroutine
+
  */
 
 import (
@@ -77,8 +82,15 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 
 	// since maps are not concurrent-safe, we need use a mutex to protect the map
 	mutex.Lock()
-	db := gameboy.NewDebugger()
-	db.Init("tetris.gb")
+	// create cpu & ppu state channels
+	cpuStateChannel := make(chan *gameboy.CpuState)
+	ppuStateChannel := make(chan *gameboy.PpuState)
+	apuStateChannel := make(chan *gameboy.ApuState)
+	memoryStateChannel := make(chan *[]gameboy.MemoryWrite)
+	joypadStateChannel := make(chan *gameboy.JoypadState)
+
+	db := gameboy.NewDebugger(cpuStateChannel, ppuStateChannel, apuStateChannel, memoryStateChannel, joypadStateChannel)
+	db.LoadRom("tetris.gb")
 	// return the initial state of the CPU
 	emulators[conn] = db
 	mutex.Unlock()
@@ -91,30 +103,87 @@ func handleWSMessage(w http.ResponseWriter, r *http.Request) {
 	sendMessage(conn, InitialMemoryMapsMessage(&attachedMemories))
 
 	// send the initial state of the CPU to the client
-	gameboyInitialState := db.Step()
-	sendMessage(conn, GameboyStateMessage(gameboyInitialState))
+	go func() {
+		db.Step()
+		cpuInitialState := <-cpuStateChannel
+		sendMessage(conn, CPUStateMessage(cpuInitialState))
+		ppuInitialState := <-ppuStateChannel
+		sendMessage(conn, PPUStateMessage(ppuInitialState))
+		apuInitialState := <-apuStateChannel
+		sendMessage(conn, APUStateMessage(apuInitialState))
+		memoryInitialState := <-memoryStateChannel
+		sendMessage(conn, MemoryStateMessage(memoryInitialState))
+	}()
+
+	fmt.Println("Initial state sent ... listening to incoming messages")
 
 	// now that the connection has been established, we can start listening for messages
 	for {
 		// read the incoming message
-		messageType, p, err := conn.ReadMessage()
+		_, p, err := conn.ReadMessage()
 		if err != nil {
 			fmt.Println("Err: Couldn't read incoming message", err)
 			break
 		}
+		fmt.Println("received msg", p)
 
-		// Accept only text messages
-		if messageType != websocket.TextMessage {
-			fmt.Println("Err: Received non-text message")
-			break
-		}
+		// unmarshall the message
+		var msg Message = Message{}
+		json.Unmarshal(p, &msg)
+		fmt.Println("")
+		fmt.Println("> received msg", p)
+		fmt.Println("--------------")
+		fmt.Println("- msg.Type", msg.Type)
+		fmt.Println("- msg.Data", msg.Data)
 
 		// Process the message
-		switch string(p) {
-		case "step":
-			newState := emulators[conn].Step()
-			sendMessage(conn, GameboyStateMessage(newState))
-		case "run":
+		switch msg.Type {
+		// gameboy related messages
+		case StepMessageType:
+			fmt.Println("+ step request")
+			emulators[conn].Step()
+			cpuState := <-cpuStateChannel
+			sendMessage(conn, CPUStateMessage(cpuState))
+			ppuState := <-ppuStateChannel
+			sendMessage(conn, PPUStateMessage(ppuState))
+			apuState := <-apuStateChannel
+			sendMessage(conn, APUStateMessage(apuState))
+			memoryState := <-memoryStateChannel
+			sendMessage(conn, MemoryStateMessage(memoryState))
+		case RunMessageType:
+			fmt.Println("+ received run request")
+			go func() {
+				emulators[conn].Run()
+				for {
+					select {
+					case cpuState := <-cpuStateChannel:
+						sendMessage(conn, CPUStateMessage(cpuState))
+					case ppuState := <-ppuStateChannel:
+						sendMessage(conn, PPUStateMessage(ppuState))
+					case apuState := <-apuStateChannel:
+						sendMessage(conn, APUStateMessage(apuState))
+					case memoryState := <-memoryStateChannel:
+						sendMessage(conn, MemoryStateMessage(memoryState))
+					}
+				}
+			}()
+		case JoypadStateType:
+			fmt.Println("+ received joypad request")
+			var joypadState gameboy.JoypadState
+			json.Unmarshal(p, &joypadState)
+			// forward the joypad state to the emulator
+			joypadStateChannel <- &joypadState
+		// debugger related messages
+		case AddBreakpointType:
+			var message AddBreakpointMessage
+			json.Unmarshal(p, &message)
+			fmt.Printf("+ received add breakpoint request: 0x%04X\n", message.Data)
+			db.AddBreakPoint(uint16(message.Data))
+		case RemoveBreakpointType:
+			var message RemoveBreakpointMessage
+			json.Unmarshal(p, &message)
+			fmt.Printf("+ received delete breakpoint request: 0x%04X\n", message.Data)
+			db.RemoveBreakPoint(uint16(message.Data))
 		default:
 			fmt.Println("Err: Unknown message type", string(p))
 			return
